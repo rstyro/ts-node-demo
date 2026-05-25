@@ -757,14 +757,201 @@ const server = app.listen(config.port, () => {
 });
 ```
 
-### 10.4 数据库集成
-推荐使用 Prisma（TypeScript 优先）或 TypeORM。将数据库操作放在服务层（`services/`）。
+### 10.4 数据库集成（mysql2）
 
-### 10.5 性能优化
-- 对于大型项目，避免使用 `ts-node` 长期运行，改用 `tsc --watch` + `node --watch`（Node.js 18+）或 `tsx`（基于 esbuild）。
-- 使用 `helmet` 增强安全性，配置合理的 CORS 选项。
+本项目已集成 `mysql2` 作为数据库驱动，采用连接池模式，提供完整的 CRUD 操作封装和事务支持。
 
----
+#### 10.4.1 安装依赖
+
+```bash
+pnpm add mysql2
+```
+
+#### 10.4.2 配置数据库连接
+
+在 `.env` 文件中配置数据库参数：
+
+```env
+# 数据库配置
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=root
+DB_NAME=demo
+DB_CONNECTION_LIMIT=10
+```
+
+#### 10.4.3 配置文件更新
+
+在 `src/config/index.ts` 中添加数据库配置：
+
+```typescript
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+export const config = {
+  port: parseInt(process.env.PORT || '3000', 10),
+  nodeEnv: process.env.NODE_ENV || 'development',
+  name: process.env.NAME || 'TS-NODE-DEMO',
+  
+  database: {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'demo',
+    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '10', 10),
+  },
+};
+```
+
+#### 10.4.4 项目结构
+
+```
+src/
+└── database/
+    ├── connection.ts    # 数据库连接池和基础操作
+    ├── db.ts            # Database 类封装（CRUD）
+    ├── index.ts         # 导出模块
+    └── dao/             # 数据访问对象
+        └── testDbDao.ts # 用户表 DAO 示例
+```
+
+#### 10.4.5 核心模块说明
+
+**连接池模块** (`src/database/connection.ts`)：
+
+- 创建 MySQL 连接池，支持命名占位符
+- 提供 `query`、`execute`、`transaction` 等基础方法
+- 自动管理连接的获取和释放
+
+**数据库操作封装** (`src/database/db.ts`)：
+
+- `Database` 类提供通用 CRUD 操作
+- 支持复杂查询条件、排序、分页
+- 支持事务操作
+
+**DAO 层** (`src/database/dao/testDbDao.ts`)：
+
+- 继承 `Database` 类，针对特定表封装方法
+- 实现业务相关的数据访问逻辑
+
+#### 10.4.6 使用示例
+
+**创建 DAO 类**：
+
+```typescript
+import { Database } from '@/database';
+
+export interface User {
+    id: number;
+    nickname?: string;
+    username: string;
+    password: string;
+    age: number;
+    status: number;
+    create_time: Date;
+    updated_time: Date;
+}
+
+export class UserDao extends Database {
+    constructor() {
+        super('user');
+    }
+
+    async findByUsername(username: string): Promise<User | null> {
+        return this.findOne<User>({ username });
+    }
+
+    async create(data: { username: string; password: string }): Promise<User> {
+        const now = new Date();
+        return this.insert<User>({
+            ...data,
+            status: 1,
+            create_time: now,
+            updated_time: now,
+        });
+    }
+}
+```
+
+**服务层调用**：
+
+```typescript
+import { UserDao, User } from '@/database/dao/userDao';
+import { AppError } from '@/utils/AppError';
+
+export class UserService {
+    private userDao = new UserDao();
+
+    async findAll(): Promise<User[]> {
+        return this.userDao.findAll({
+            conditions: { status: 1 },
+            where: [{ field: 'age', operator: '>', value: 18 }],
+            orderBy: [{ field: 'create_time', direction: 'DESC' }],
+            limit: 10,
+            offset: 0,
+        });
+    }
+
+    async createUser(username: string, password: string): Promise<User> {
+        const exists = await this.userDao.exists({ username });
+        if (exists) {
+            throw new AppError('Username already exists', 409, true, 'USERNAME_EXISTS');
+        }
+        return this.userDao.create({ username, password });
+    }
+}
+```
+
+#### 10.4.7 事务操作
+
+```typescript
+import { transaction } from '@/database/connection';
+
+const result = await transaction(async (connection) => {
+    // 在事务中执行多个操作
+    await connection.execute('INSERT INTO orders ...', {...});
+    await connection.execute('UPDATE inventory ...', {...});
+    return { success: true };
+});
+```
+
+#### 10.4.8 数据库表初始化
+
+创建 `user` 表的 SQL 脚本：
+
+```sql
+CREATE TABLE `user` (
+    `id` bigint NOT NULL AUTO_INCREMENT,
+    `nickname` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+    `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+    `password` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL,
+    `email` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
+    `age` int DEFAULT NULL,
+    `status` int DEFAULT '0',
+    `update_time` datetime DEFAULT CURRENT_TIMESTAMP,
+    `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
+```
+
+#### 10.4.9 数据库路由示例
+
+项目已提供完整的用户 CRUD 路由：
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/users` | 获取用户列表 |
+| GET | `/api/users/:id` | 根据 ID 获取用户 |
+| GET | `/api/users/username/:username` | 根据用户名获取用户 |
+| POST | `/api/users` | 创建用户 |
+| POST | `/api/users/batch` | 批量创建用户 |
+| PUT | `/api/users/:id` | 更新用户信息 |
+| PATCH | `/api/users/:id/status` | 更新用户状态 |
+| DELETE | `/api/users/:id` | 删除用户（软删除） |
+
 
 ## 11. 总结
 

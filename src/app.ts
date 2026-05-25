@@ -6,6 +6,7 @@ import { ResponseUtil } from '@/utils/response';
 import { AppError } from '@/utils/AppError';
 import { log } from '@/utils/logger';
 import userRoutes from '@/routes/userRoutes';
+import testDbRoutes from '@/routes/testDbRoutes';
 
 const app: Application = express();
 
@@ -22,6 +23,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // 业务路由（示例）
 app.use('/api', userRoutes);
+app.use('/db', testDbRoutes);
 
 // 404 处理（未匹配到路由）
 app.use((_req: Request, res: Response) => {
