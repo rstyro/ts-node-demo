@@ -4,7 +4,7 @@
   "description": "从零搭建一个企业级的 Node.js + TypeScript 项目，涵盖初始化、配置、开发、调试、测试、构建及部署全流程。",
   "main": "index.js",
   "scripts": {
-    "build": "rimraf dist && tsc && tsc-alias",
+    "build": "rimraf dist tsconfig.tsbuildinfo && tsc && tsc-alias",
     "start": "node dist/server.js",
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register src/server.ts",
     "dev:watch": "concurrently \"tsc --watch\" \"tsc-alias -w\" \"nodemon dist/server.js\"",
