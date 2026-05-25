@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { config } from '@/config/index';
 import { ResponseUtil } from '@/utils/response';
 import { AppError } from '@/utils/AppError';
-// 导入路由（稍后定义）
+import { log } from '@/utils/logger';
 import userRoutes from '@/routes/userRoutes';
 
 const app: Application = express();
@@ -30,10 +30,10 @@ app.use((_req: Request, res: Response) => {
 
 // 全局异常捕获中间件（必须放在所有路由和中间件之后）
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    // 记录错误（生产环境建议使用 winston 等日志库）
-    console.error('Global error caught:', err);
+    log.error('Global error caught:', { error: err.message, stack: err.stack });
 
     if (err instanceof AppError) {
+        log.warn('Business error:', { message: err.message, code: err.code, statusCode: err.statusCode });
         // 已知业务异常：根据状态码返回统一格式
         return res.status(err.statusCode).json(
             ResponseUtil.error(err.message, err.statusCode, { code: err.code })

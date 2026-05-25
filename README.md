@@ -646,7 +646,116 @@ interface Env {
 ```
 
 ### 10.3 日志记录
-生产环境建议使用 `winston` 或 `pino` 替代 `console.log`，并在全局异常处理中记录错误。
+
+生产环境建议使用 `winston` 或 `pino` 替代 `console.log`。本项目已集成 `winston` 日志库。
+
+#### 安装依赖
+```bash
+pnpm add winston
+```
+
+#### 创建日志工具类 (`src/utils/logger.ts`)
+```typescript
+import winston, { Logger, format, transports } from 'winston';
+import { config } from '@/config';
+
+const { combine, timestamp, printf, colorize, json } = format;
+
+/**
+ * 自定义日志格式
+ */
+const logFormat = printf(({ level, message, timestamp: ts, ...meta }) => {
+    const metaString = Object.keys(meta).length
+        ? ` ${JSON.stringify(meta)}`
+        : '';
+    return `${ts} [${level}]: ${message}${metaString}`;
+});
+
+/**
+ * 创建 Winston Logger 实例
+ */
+const log: Logger = winston.createLogger({
+    level: config.nodeEnv === 'production' ? 'info' : 'debug',
+    /**
+     * 默认附加字段
+     * 用于标识日志来源
+     */
+    defaultMeta: { service: config.name },
+    /**
+     * 全局日志格式
+     * - 所有日志都会带时间戳
+     */
+    format: combine(
+        timestamp({ format: 'YYYY-MM-DD HH:mm:ss' })
+    ),
+    /**
+     * 日志输出目标（transports）
+     */
+    transports: [
+        new transports.File({
+            filename: 'logs/error.log',
+            level: 'error',
+            format: combine(timestamp(), json())
+        }),
+        new transports.File({
+            filename: 'logs/combined.log',
+            format: combine(timestamp(), json())
+        })
+    ]
+});
+
+/**
+ * 开发环境额外配置
+ *
+ * - 输出到控制台
+ * - 彩色显示
+ * - 人类可读格式
+ */
+if (config.nodeEnv !== 'production') {
+    log.add(
+        new transports.Console({
+            format: combine(
+                timestamp(),
+                colorize(),   // 彩色级别（info / error / warn）
+                logFormat     // 自定义文本格式
+            )
+        })
+    );
+}
+
+export { log };
+```
+
+#### 使用方式
+```typescript
+import { log } from '@/utils/logger';
+
+log.debug('调试信息');
+log.info('一般信息');
+log.warn('警告信息');
+log.error('错误信息');
+```
+
+#### 日志特性
+- **环境适配**：开发环境彩色控制台输出，生产环境 JSON 格式输出
+- **级别控制**：生产环境 `info` 级别，开发环境 `debug` 级别
+- **持久化**：自动写入 `logs/error.log`（仅错误）和 `logs/combined.log`（全部）
+
+#### 在应用中集成
+在 `src/app.ts` 全局异常处理中使用：
+```typescript
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    log.error('Global error caught:', { error: err.message, stack: err.stack });
+  // ...
+});
+```
+
+在 `src/server.ts` 服务启动时使用：
+```typescript
+const server = app.listen(config.port, () => {
+    log.info('服务启动成功', { url: `http://localhost:${config.port}` });
+});
+```
 
 ### 10.4 数据库集成
 推荐使用 Prisma（TypeScript 优先）或 TypeORM。将数据库操作放在服务层（`services/`）。
@@ -667,6 +776,7 @@ interface Env {
 - ✅ 全局异常捕获中间件（区分业务与系统错误）
 - ✅ 异步路由自动异常传递（`catchAsync`）
 - ✅ 开发热重载、调试、代码规范、测试
+- ✅ Winston 日志记录（文件持久化 + 环境适配）
 
 你可以在此基础上快速集成数据库、身份验证、API 文档（Swagger）等功能，构建可靠的后端服务。
 
